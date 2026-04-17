@@ -1,6 +1,6 @@
 # ============================================================
-# render.yaml — Infrastructure as Code cho Render
-# Repo root blueprint; web service code lives under 03-cloud-deployment/railway
+# render.yaml — Root Blueprint cho bản Part 6 (06-lab-complete)
+# Lần deploy tiếp theo từ repo root sẽ chạy app hoàn chỉnh theo checklist.
 # ============================================================
 
 services:
@@ -9,20 +9,32 @@ services:
     runtime: python
     region: singapore
     plan: free
-    rootDir: 03-cloud-deployment/railway
+    rootDir: 06-lab-complete
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     autoDeployTrigger: commit
     envVars:
+      # Dùng staging để giữ /docs bật cho việc demo/chụp màn hình.
       - key: ENVIRONMENT
-        value: production
+        value: staging
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: OPENAI_API_KEY
         sync: false
       - key: AGENT_API_KEY
         generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "20"
+      - key: DAILY_BUDGET_USD
+        value: "5.0"
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: agent-cache
+          property: connectionString
 
   - type: redis
     name: agent-cache

@@ -151,7 +151,7 @@ curl -X POST https://ai-agent-5cj8.onrender.com/ask \
 - [x] No `.env` file committed (only `.env.example`)
 - [x] No hardcoded secrets in code
 - [x] Public URL is accessible and working
-- [ ] Screenshots included in `screenshots/` folder
+- [x] Screenshots included in `screenshots/` folder
 - [X] Repository has clear commit history
 
 ---
@@ -188,7 +188,7 @@ done
 **Submit your GitHub repository URL:**
 
 ```
-https://github.com/your-username/day12-agent-deployment
+https://github.com/haphcc/day12_ha-tang-cloud_va_deployment/tree/main
 ```
 
 **Deadline:** 17/4/2026
