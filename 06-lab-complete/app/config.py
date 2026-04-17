@@ -42,22 +42,24 @@ class Settings:
 
     def validate(self):
         logger = logging.getLogger(__name__)
+        import secrets
         
-        # For staging/development, generate secure defaults if not set
-        if self.environment in ("staging", "development"):
-            if self.agent_api_key == "dev-key-change-me":
-                import secrets
-                self.agent_api_key = f"dev-{secrets.token_hex(16)}"
-            if self.jwt_secret == "dev-jwt-secret":
-                import secrets
-                self.jwt_secret = secrets.token_urlsafe(32)
+        # Always generate secure secrets if still at default values
+        # (Render's generateValue may not work reliably)
+        if self.agent_api_key == "dev-key-change-me":
+            self.agent_api_key = f"dev-{secrets.token_hex(16)}"
+            logger.info(f"Generated AGENT_API_KEY for {self.environment}")
         
-        # For production, require explicit values
+        if self.jwt_secret == "dev-jwt-secret":
+            self.jwt_secret = secrets.token_urlsafe(32)
+            logger.info(f"Generated JWT_SECRET for {self.environment}")
+        
+        # For production, do additional strict checks
         if self.environment == "production":
-            if self.agent_api_key == "dev-key-change-me":
-                raise ValueError("AGENT_API_KEY must be set in production!")
-            if self.jwt_secret == "dev-jwt-secret":
-                raise ValueError("JWT_SECRET must be set in production!")
+            if not os.getenv("AGENT_API_KEY"):
+                raise ValueError("AGENT_API_KEY environment variable must be explicitly set in production!")
+            if not os.getenv("JWT_SECRET"):
+                raise ValueError("JWT_SECRET environment variable must be explicitly set in production!")
         
         if not self.openai_api_key:
             logger.warning("OPENAI_API_KEY not set — using mock LLM")
