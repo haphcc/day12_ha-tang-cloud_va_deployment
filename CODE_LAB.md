@@ -66,6 +66,19 @@ cd 01-localhost-vs-production/develop
 
 **Nhiệm vụ:** Đọc `app.py` và tìm ít nhất 5 vấn đề.
 
+**Đáp án mẫu (từ `01-localhost-vs-production/develop/app.py`):**
+
+1. Hardcode secret trong code:
+  - `OPENAI_API_KEY = "sk-hardcoded-fake-key-never-do-this"`
+  - `DATABASE_URL = "postgresql://admin:password123@localhost:5432/mydb"`
+2. Không dùng config management từ environment variables (`DEBUG`, `MAX_TOKENS` bị hardcode).
+3. Dùng `print()` thay vì structured logging.
+4. Log lộ secret (`print(f"[DEBUG] Using key: {OPENAI_API_KEY}")`).
+5. Không có health check endpoint (`/health`).
+6. Port cố định `8000`, không đọc từ `PORT` env var.
+7. Bind `host="localhost"` nên không phù hợp container/cloud (nên dùng `0.0.0.0`).
+8. `reload=True` bật debug behavior không phù hợp production.
+
 <details>
 <summary> Gợi ý</summary>
 
@@ -107,17 +120,19 @@ python app.py
 
 | Feature | Basic | Advanced | Tại sao quan trọng? |
 |---------|-------|----------|---------------------|
-| Config | Hardcode | Env vars | ... |
-| Health check |  |  | ... |
-| Logging | print() | JSON | ... |
-| Shutdown | Đột ngột | Graceful | ... |
+| Config | Hardcode trong code | Đọc từ env vars qua `config.py` | Tách config khỏi code, đổi môi trường không cần sửa source |
+| Health check | Không có | Có `/health` (liveness) và `/ready` (readiness) | Platform biết khi nào restart và khi nào route traffic |
+| Logging | `print()` | Structured JSON logging | Dễ parse log, theo dõi và debug trên cloud |
+| Shutdown | Đột ngột | Graceful qua `lifespan` + SIGTERM handler | Giảm rớt request khi deploy/restart |
+| Host/Port | `localhost:8000` cố định | `0.0.0.0` + port từ env `PORT` | Chạy được trong container/cloud và linh hoạt theo platform |
+| Secrets | Secret nằm trong code, còn bị log ra | Secret từ env, không log secret | Tránh lộ key, an toàn khi push code |
 
 ###  Checkpoint 1
 
-- [ ] Hiểu tại sao hardcode secrets là nguy hiểm
-- [ ] Biết cách dùng environment variables
-- [ ] Hiểu vai trò của health check endpoint
-- [ ] Biết graceful shutdown là gì
+- [x] Hiểu tại sao hardcode secrets là nguy hiểm
+- [x] Biết cách dùng environment variables
+- [x] Hiểu vai trò của health check endpoint
+- [x] Biết graceful shutdown là gì
 
 ---
 
@@ -141,12 +156,12 @@ python app.py
 cd ../../02-docker/develop
 ```
 
-**Nhiệm vụ:** Đọc `Dockerfile` và trả lời:
+**Đáp án (`02-docker/develop/Dockerfile`):**
 
-1. Base image là gì?
-2. Working directory là gì?
-3. Tại sao COPY requirements.txt trước?
-4. CMD vs ENTRYPOINT khác nhau thế nào?
+1. Base image: `python:3.11`.
+2. Working directory: `/app`.
+3. `COPY requirements.txt` trước để tận dụng Docker layer cache. Nếu source code đổi mà dependencies không đổi thì không phải cài lại toàn bộ packages, build nhanh hơn.
+4. `CMD` là lệnh mặc định (dễ override khi `docker run <image> <command>`), còn `ENTRYPOINT` là executable chính của container (argument từ `docker run` thường được append).
 
 ###  Exercise 2.2: Build và run
 
@@ -163,7 +178,7 @@ curl http://localhost:8000/ask -X POST \
   -d '{"question": "What is Docker?"}'
 ```
 
-**Quan sát:** Image size là bao nhiêu?
+**Quan sát:** Image size là bao nhiêu?: 424MB
 ```bash
 docker images my-agent:develop
 ```
@@ -179,6 +194,18 @@ cd ../production
 - Stage 2 làm gì?
 - Tại sao image nhỏ hơn?
 
+**Đáp án mẫu (`02-docker/production/Dockerfile`):**
+
+- Stage 1 (builder):
+  - Dùng `python:3.11-slim`.
+  - Cài build tools (`gcc`, `libpq-dev`).
+  - Cài dependencies bằng pip vào `/root/.local`.
+- Stage 2 (runtime):
+  - Dùng image slim mới, tạo non-root user (`appuser`).
+  - Chỉ copy packages cần chạy từ builder + source code app.
+  - Thiết lập `PATH`, `PYTHONPATH`, `HEALTHCHECK`, rồi chạy uvicorn.
+- Image nhỏ hơn vì không mang theo compiler/build dependencies của stage build vào image runtime cuối cùng.
+
 Build và so sánh:
 ```bash
 docker build -t my-agent:advanced .
@@ -189,11 +216,39 @@ docker images | grep my-agent
 
 **Nhiệm vụ:** Đọc `docker-compose.yml` và vẽ architecture diagram.
 
-```bash
-docker compose up
+**Architecture diagram (`02-docker/production/docker-compose.yml`):**
+
+```text
+Client
+  |
+  v
+Nginx (reverse proxy + rate limit)
+  |
+  v
+Agent (FastAPI)
+  |\
+  | \-> Redis (cache/session/rate-limit state)
+  |
+  \----> Qdrant (vector database)
 ```
 
-Services nào được start? Chúng communicate thế nào?
+**Services được start:**
+- `agent`
+- `redis`
+- `qdrant`
+- `nginx`
+
+**Chúng communicate thế nào:**
+- Client gọi vào `nginx` qua port 80.
+- `nginx` proxy request vào `agent` qua internal network.
+- `agent` dùng `REDIS_URL=redis://redis:6379/0` để nói chuyện với Redis.
+- `agent` dùng `QDRANT_URL=http://qdrant:6333` để nói chuyện với Qdrant.
+
+```bash
+# Windows PowerShell (from repo root)
+if (-not (Test-Path "02-docker/production/.env.local")) { New-Item -Path "02-docker/production/.env.local" -ItemType File | Out-Null }
+docker compose -f 02-docker/production/docker-compose.yml up --build
+```
 
 Test:
 ```bash
@@ -208,10 +263,10 @@ curl http://localhost/ask -X POST \
 
 ###  Checkpoint 2
 
-- [ ] Hiểu cấu trúc Dockerfile
-- [ ] Biết lợi ích của multi-stage builds
-- [ ] Hiểu Docker Compose orchestration
-- [ ] Biết cách debug container (`docker logs`, `docker exec`)
+- [x] Hiểu cấu trúc Dockerfile
+- [x] Biết lợi ích của multi-stage builds
+- [x] Hiểu Docker Compose orchestration
+- [x] Biết cách debug container (`docker logs`, `docker exec`)
 
 ---
 
@@ -231,10 +286,39 @@ curl http://localhost/ask -X POST \
 | Render | ⭐⭐ | 750h/month | Side projects |
 | Cloud Run | ⭐⭐⭐ | 2M requests | Production |
 
-###  Exercise 3.1: Deploy Railway (15 phút)
+###  Exercise 3.1: Deploy Render (15 phút)
 
 ```bash
-cd ../../03-cloud-deployment/railway
+cd ../../03-cloud-deployment/render
+```
+
+**Steps:**
+
+1. Push code lên GitHub (nếu chưa có)
+2. Vào [render.com](https://render.com) → Sign up
+3. New → Blueprint
+4. Connect GitHub repo
+5. Render tự động đọc `render.yaml`
+6. Set environment variables trong dashboard
+7. Deploy! Render sẽ tạo web service và Redis từ `render.yaml`
+
+**Nhiệm vụ:** Test public URL với curl hoặc Postman.
+
+Test:
+```bash
+# Health check
+curl http://student-agent-domain/health
+
+# Agent endpoint
+curl http://studen-agent-domain/ask -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"question": ""}'
+```
+
+###  Exercise 3.2: (Optional) Deploy Railway (15 phút)
+
+```bash
+cd ../railway
 ```
 
 **Steps:**
@@ -254,50 +338,26 @@ railway login
 railway init
 ```
 
-4. Set environment variables:
+4. Link service:
+```bash
+railway service
+```
+
+5. Set environment variables:
 ```bash
 railway variables set PORT=8000
 railway variables set AGENT_API_KEY=my-secret-key
 ```
 
-5. Deploy:
+6. Deploy:
 ```bash
 railway up
 ```
 
-6. Get public URL:
+7. Get public URL:
 ```bash
 railway domain
 ```
-
-**Nhiệm vụ:** Test public URL với curl hoặc Postman.
-
-Test:
-```bash
-# Health check
-curl http://student-agent-domain/health
-
-# Agent endpoint
-curl http://studen-agent-domain/ask -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"question": ""}'
-```
-
-###  Exercise 3.2: Deploy Render (15 phút)
-
-```bash
-cd ../render
-```
-
-**Steps:**
-
-1. Push code lên GitHub (nếu chưa có)
-2. Vào [render.com](https://render.com) → Sign up
-3. New → Blueprint
-4. Connect GitHub repo
-5. Render tự động đọc `render.yaml`
-6. Set environment variables trong dashboard
-7. Deploy!
 
 **Nhiệm vụ:** So sánh `render.yaml` với `railway.toml`. Khác nhau gì?
 
