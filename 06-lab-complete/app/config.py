@@ -42,11 +42,23 @@ class Settings:
 
     def validate(self):
         logger = logging.getLogger(__name__)
+        
+        # For staging/development, generate secure defaults if not set
+        if self.environment in ("staging", "development"):
+            if self.agent_api_key == "dev-key-change-me":
+                import secrets
+                self.agent_api_key = f"dev-{secrets.token_hex(16)}"
+            if self.jwt_secret == "dev-jwt-secret":
+                import secrets
+                self.jwt_secret = secrets.token_urlsafe(32)
+        
+        # For production, require explicit values
         if self.environment == "production":
             if self.agent_api_key == "dev-key-change-me":
                 raise ValueError("AGENT_API_KEY must be set in production!")
             if self.jwt_secret == "dev-jwt-secret":
                 raise ValueError("JWT_SECRET must be set in production!")
+        
         if not self.openai_api_key:
             logger.warning("OPENAI_API_KEY not set — using mock LLM")
         return self
