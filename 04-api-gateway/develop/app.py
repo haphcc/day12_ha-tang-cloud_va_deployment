@@ -86,4 +86,5 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     print(f"API Key: {API_KEY}")
     print(f"Test: curl -H 'X-API-Key: {API_KEY}' http://localhost:{port}/ask?question=hello")
-    uvicorn.run(app, host="0.0.0.0", port=port, reload=True)
+    # Programmatic uvicorn.run cannot use reload=True unless app is passed as an import string.
+    uvicorn.run(app, host="0.0.0.0", port=port, reload=False)

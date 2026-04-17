@@ -1,8 +1,8 @@
 #  Delivery Checklist — Day 12 Lab Submission
 
-> **Student Name:** _________________________  
-> **Student ID:** _________________________  
-> **Date:** _________________________
+> **Student Name:** Hà Hưng Phước
+> **Student ID:** 2A202600367
+> **Date:** 04/17/2026
 
 ---
 
@@ -45,7 +45,7 @@ Create a file `MISSION_ANSWERS.md` with your answers to all exercises:
 ## Part 3: Cloud Deployment
 
 ### Exercise 3.1: Railway deployment
-- URL: https://your-app.railway.app
+- URL: https://ai-agent-5cj8.onrender.com
 - Screenshot: [Link to screenshot in repo]
 
 ## Part 4: API Security
@@ -108,22 +108,22 @@ Create a file `DEPLOYMENT.md` with your deployed service information:
 # Deployment Information
 
 ## Public URL
-https://your-agent.railway.app
+https://ai-agent-5cj8.onrender.com
 
 ## Platform
-Railway / Render / Cloud Run
+Render
 
 ## Test Commands
 
 ### Health Check
 ```bash
-curl https://your-agent.railway.app/health
+curl https://ai-agent-5cj8.onrender.com/health
 # Expected: {"status": "ok"}
 ```
 
 ### API Test (with authentication)
 ```bash
-curl -X POST https://your-agent.railway.app/ask \
+curl -X POST https://ai-agent-5cj8.onrender.com/ask \
   -H "X-API-Key: YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{"user_id": "test", "question": "Hello"}'
@@ -143,16 +143,16 @@ curl -X POST https://your-agent.railway.app/ask \
 
 ##  Pre-Submission Checklist
 
-- [ ] Repository is public (or instructor has access)
-- [ ] `MISSION_ANSWERS.md` completed with all exercises
-- [ ] `DEPLOYMENT.md` has working public URL
-- [ ] All source code in `app/` directory
-- [ ] `README.md` has clear setup instructions
-- [ ] No `.env` file committed (only `.env.example`)
-- [ ] No hardcoded secrets in code
-- [ ] Public URL is accessible and working
+- [X] Repository is public (or instructor has access)
+- [x] `MISSION_ANSWERS.md` completed with all exercises
+- [x] `DEPLOYMENT.md` has working public URL
+- [x] All source code in `app/` directory
+- [x] `README.md` has clear setup instructions
+- [x] No `.env` file committed (only `.env.example`)
+- [x] No hardcoded secrets in code
+- [x] Public URL is accessible and working
 - [ ] Screenshots included in `screenshots/` folder
-- [ ] Repository has clear commit history
+- [X] Repository has clear commit history
 
 ---
 
@@ -162,20 +162,20 @@ Before submitting, verify your deployment:
 
 ```bash
 # 1. Health check
-curl https://your-app.railway.app/health
+curl https://ai-agent-5cj8.onrender.com/health
 
 # 2. Authentication required
-curl https://your-app.railway.app/ask
+curl https://ai-agent-5cj8.onrender.com/ask
 # Should return 401
 
 # 3. With API key works
-curl -H "X-API-Key: YOUR_KEY" https://your-app.railway.app/ask \
+curl -H "X-API-Key: YOUR_KEY" https://ai-agent-5cj8.onrender.com/ask \
   -X POST -d '{"user_id":"test","question":"Hello"}'
 # Should return 200
 
 # 4. Rate limiting
 for i in {1..15}; do 
-  curl -H "X-API-Key: YOUR_KEY" https://your-app.railway.app/ask \
+  curl -H "X-API-Key: YOUR_KEY" https://ai-agent-5cj8.onrender.com/ask \
     -X POST -d '{"user_id":"test","question":"test"}'; 
 done
 # Should eventually return 429

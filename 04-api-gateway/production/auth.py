@@ -10,8 +10,11 @@ Flow:
     Server verify signature → extract user info → process request
 """
 import os
-import jwt
 import time
+import json
+import base64
+import hmac
+import hashlib
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -32,15 +35,53 @@ DEMO_USERS = {
 security = HTTPBearer(auto_error=False)
 
 
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(data: str) -> bytes:
+    padding = "=" * ((4 - len(data) % 4) % 4)
+    return base64.urlsafe_b64decode((data + padding).encode("ascii"))
+
+
+def _jwt_encode(payload: dict, secret: str) -> str:
+    header = {"alg": ALGORITHM, "typ": "JWT"}
+    header_b64 = _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+    payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
+    signature = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    return f"{header_b64}.{payload_b64}.{_b64url_encode(signature)}"
+
+
+def _jwt_decode(token: str, secret: str) -> dict:
+    try:
+        header_b64, payload_b64, signature_b64 = token.split(".")
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Invalid token format.") from exc
+
+    signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
+    expected_sig = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    provided_sig = _b64url_decode(signature_b64)
+
+    if not hmac.compare_digest(expected_sig, provided_sig):
+        raise HTTPException(status_code=403, detail="Invalid token signature.")
+
+    payload = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
+    exp = int(payload.get("exp", 0))
+    if exp and int(time.time()) > exp:
+        raise HTTPException(status_code=401, detail="Token expired. Please login again.")
+    return payload
+
+
 def create_token(username: str, role: str) -> str:
     """Tạo JWT token với expiry."""
     payload = {
         "sub": username,           # subject (user identifier)
         "role": role,
-        "iat": datetime.now(timezone.utc),  # issued at
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        "iat": int(datetime.now(timezone.utc).timestamp()),  # issued at
+        "exp": int((datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)).timestamp()),
     }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return _jwt_encode(payload, SECRET_KEY)
 
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Security(security)) -> dict:
@@ -55,16 +96,11 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Security(security))
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-        return {
-            "username": payload["sub"],
-            "role": payload["role"],
-        }
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired. Please login again.")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=403, detail="Invalid token.")
+    payload = _jwt_decode(credentials.credentials, SECRET_KEY)
+    return {
+        "username": payload["sub"],
+        "role": payload["role"],
+    }
 
 
 def authenticate_user(username: str, password: str) -> dict:

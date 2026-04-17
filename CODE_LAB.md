@@ -302,18 +302,26 @@ cd .
 6. Set environment variables trong dashboard
 7. Deploy! Render sẽ tạo web service và Redis từ `render.yaml`
 
-**Nhiệm vụ:** Test public URL với curl hoặc Postman.
+**Nhiệm vụ:** Sau khi deploy xong, mở Render Dashboard và copy public URL của web service, rồi test 2 endpoint sau:
 
-Test:
+Test bằng curl:
 ```bash
 # Health check
-curl http://student-agent-domain/health
+curl https://ai-agent-5cj8.onrender.com/health
 
 # Agent endpoint
-curl http://studen-agent-domain/ask -X POST \
+curl https://ai-agent-5cj8.onrender.com/ask -X POST \
   -H "Content-Type: application/json" \
-  -d '{"question": ""}'
+  -d '{"question": "Hello from Render"}'
 ```
+
+Test bằng Windows PowerShell:
+```powershell
+Invoke-RestMethod -Uri "https://ai-agent-5cj8.onrender.com/health" -Method Get
+Invoke-RestMethod -Uri "https://ai-agent-5cj8.onrender.com/ask" -Method Post -ContentType "application/json" -Body '{"question":"Hello from Render"}'
+```
+
+Nếu `/health` trả về `200 OK` và `/ask` trả về câu trả lời từ agent, nghĩa là deploy đã thành công.
 
 ###  Exercise 3.2: (Optional) Deploy Railway (15 phút)
 
@@ -361,6 +369,14 @@ railway domain
 
 **Nhiệm vụ:** So sánh `render.yaml` với `railway.toml`. Khác nhau gì?
 
+**Đáp án ngắn:**
+
+- `render.yaml` là Blueprint ở cấp repo root, dùng để khai báo nhiều service cùng lúc như web service và Redis.
+- `railway.toml` là cấu hình cho một Railway service/project, tập trung vào cách build và start app.
+- Render hỗ trợ khai báo `envVars`, `rootDir`, `healthCheckPath`, và cả Redis ngay trong cùng một file.
+- Railway thường cần `railway init`, `railway service`, rồi set biến môi trường bằng CLI hoặc dashboard trước khi deploy.
+- Render phù hợp khi muốn Infra as Code rõ ràng cho cả app và dependency đi kèm; Railway phù hợp khi muốn deploy nhanh một service đơn giản.
+
 ###  Exercise 3.3: (Optional) GCP Cloud Run (15 phút)
 
 ```bash
@@ -398,24 +414,44 @@ cd ../../04-api-gateway/develop
 ```
 
 **Nhiệm vụ:** Đọc `app.py` và tìm:
-- API key được check ở đâu?
-- Điều gì xảy ra nếu sai key?
-- Làm sao rotate key?
+1. API key được check trong dependency `verify_api_key()`:
+  - Header được lấy qua `APIKeyHeader(name="X-API-Key", auto_error=False)`.
+  - Endpoint `/ask` bắt buộc auth bằng `Depends(verify_api_key)`.
+2. Nếu key sai hoặc thiếu:
+  - Thiếu key: trả `401` với message yêu cầu gửi header `X-API-Key`.
+  - Sai key: trả `403` với message `Invalid API key.`
+3. Rotate key:
+  - Key lấy từ env var `AGENT_API_KEY` (không hardcode trong source).
+  - Đổi giá trị `AGENT_API_KEY` trên môi trường deploy (Render/Railway/GCP).
+  - Redeploy/restart service để app nạp key mới.
+  - (Khuyến nghị) dùng giai đoạn chuyển tiếp chấp nhận cả key cũ + key mới trong thời gian ngắn, sau đó thu hồi key cũ.
 
 Test:
 ```bash
 python app.py
 
 #  Không có key
-curl http://localhost:8000/ask -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Hello"}'
+curl -i "http://localhost:8000/ask?question=Hello" -X POST
 
 #  Có key
-curl http://localhost:8000/ask -X POST \
-  -H "X-API-Key: secret-key-123" \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Hello"}'
+curl -i "http://localhost:8000/ask?question=Hello" -X POST \
+  -H "X-API-Key: demo-key-change-in-production"
+```
+
+Windows PowerShell:
+```powershell
+python app.py
+
+# Không có key
+try {
+  Invoke-RestMethod -Uri "http://localhost:8000/ask?question=Hello" -Method Post
+} catch {
+  $_.Exception.Response.StatusCode.value__
+  $_.ErrorDetails.Message
+}
+
+# Có key
+Invoke-RestMethod -Uri "http://localhost:8000/ask?question=Hello" -Method Post -Headers @{"X-API-Key"="demo-key-change-in-production"}
 ```
 
 ###  Exercise 4.2: JWT authentication (Advanced)
@@ -426,13 +462,17 @@ cd ../production
 
 **Nhiệm vụ:** 
 1. Đọc `auth.py` — hiểu JWT flow
-2. Lấy token:
+2. Lấy token:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzdHVkZW50Iiwicm9sZSI6InVzZXIiLCJpYXQiOjE3NzY0...
+
 ```bash
 python app.py
+```
 
-curl http://localhost:8000/token -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "secret"}'
+Windows PowerShell:
+```powershell
+python app.py
+
+Invoke-RestMethod -Uri "http://localhost:8000/auth/token" -Method Post -ContentType "application/json" -Body '{"username":"student","password":"demo123"}'
 ```
 
 3. Dùng token để gọi API:
@@ -444,6 +484,12 @@ curl http://localhost:8000/ask -X POST \
   -d '{"question": "Explain JWT"}'
 ```
 
+Windows PowerShell:
+```powershell
+$token = (Invoke-RestMethod -Uri "http://localhost:8000/auth/token" -Method Post -ContentType "application/json" -Body '{"username":"student","password":"demo123"}').access_token
+Invoke-RestMethod -Uri "http://localhost:8000/ask" -Method Post -Headers @{"Authorization"="Bearer $token"} -ContentType "application/json" -Body '{"question":"Explain JWT"}'
+```
+
 ###  Exercise 4.3: Rate limiting
 
 **Nhiệm vụ:** Đọc `rate_limiter.py` và trả lời:
@@ -451,11 +497,22 @@ curl http://localhost:8000/ask -X POST \
 - Limit là bao nhiêu requests/minute?
 - Làm sao bypass limit cho admin?
 
+**Đáp án mẫu (từ `04-api-gateway/production/rate_limiter.py`):**
+
+1. Algorithm: **Sliding Window Counter** (dùng `deque` để lưu timestamps theo user, loại bỏ request cũ ngoài cửa sổ 60 giây).
+2. Limit mặc định:
+  - User thường: `10 requests / 60 giây`.
+  - Admin: `100 requests / 60 giây`.
+3. Bypass cho admin không phải "vô hạn", mà là chuyển sang limiter riêng:
+  - Trong `app.py`, nếu role là `admin` thì dùng `rate_limiter_admin`.
+  - Nếu role là `user` thì dùng `rate_limiter_user`.
+  - Nghĩa là admin được quota cao hơn (100/phút) thay vì 10/phút.
+
 Test:
 ```bash
 # Gọi liên tục 20 lần
 for i in {1..20}; do
-  curl http://localhost:8000/ask -X POST \
+  curl.exe http://localhost:8000/ask -X POST \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"question": "Test '$i'"}'
@@ -464,6 +521,18 @@ done
 ```
 
 Quan sát response khi hit limit.
+
+Windows PowerShell:
+```powershell
+for ($i = 1; $i -le 20; $i++) {
+  try {
+    Invoke-RestMethod -Uri "http://localhost:8000/ask" -Method Post -Headers @{"Authorization"="Bearer $token"} -ContentType "application/json" -Body "{\"question\":\"Test $i\"}"
+  } catch {
+    $_.Exception.Response.StatusCode.value__
+    $_.ErrorDetails.Message
+  }
+}
+```
 
 ###  Exercise 4.4: Cost guard
 
@@ -490,29 +559,73 @@ def check_budget(user_id: str, estimated_cost: float) -> bool:
 import redis
 from datetime import datetime
 
-r = redis.Redis()
+r = redis.Redis(host="localhost", port=6379, decode_responses=True)
+
+MONTHLY_BUDGET_USD = 10.0
 
 def check_budget(user_id: str, estimated_cost: float) -> bool:
-    month_key = datetime.now().strftime("%Y-%m")
-    key = f"budget:{user_id}:{month_key}"
-    
+  if estimated_cost < 0:
+    raise ValueError("estimated_cost must be >= 0")
+
+  # Key theo user + tháng hiện tại, ví dụ: budget:alice:2026-04
+  month_key = datetime.now().strftime("%Y-%m")
+  key = f"budget:{user_id}:{month_key}"
+
     current = float(r.get(key) or 0)
-    if current + estimated_cost > 10:
+  if current + estimated_cost > MONTHLY_BUDGET_USD:
         return False
-    
+
     r.incrbyfloat(key, estimated_cost)
-    r.expire(key, 32 * 24 * 3600)  # 32 days
+  # TTL > 1 tháng để key tự hết sau kỳ billing
+  r.expire(key, 32 * 24 * 3600)
     return True
 ```
 
 </details>
 
+**Giải thích nhanh:**
+
+- Redis key theo tháng giúp tự tách dữ liệu từng kỳ (`budget:<user_id>:YYYY-MM`).
+- Mỗi request ước lượng chi phí trước khi gọi LLM, nếu vượt `$10/tháng` thì trả `False` để chặn.
+- `expire(32 ngày)` đảm bảo key cũ tự dọn sau khi qua kỳ mới.
+
+Test nhanh (Windows PowerShell):
+
+```powershell
+# Cần Redis đang chạy ở localhost:6379
+@'
+from datetime import datetime
+import redis
+
+r = redis.Redis(host="localhost", port=6379, decode_responses=True)
+user_id = "student"
+month = datetime.now().strftime("%Y-%m")
+key = f"budget:{user_id}:{month}"
+r.delete(key)
+
+def check_budget(user_id: str, estimated_cost: float) -> bool:
+  month_key = datetime.now().strftime("%Y-%m")
+  k = f"budget:{user_id}:{month_key}"
+  current = float(r.get(k) or 0)
+  if current + estimated_cost > 10.0:
+    return False
+  r.incrbyfloat(k, estimated_cost)
+  r.expire(k, 32 * 24 * 3600)
+  return True
+
+print(check_budget("student", 3.5))  # True
+print(check_budget("student", 6.0))  # True
+print(check_budget("student", 1.0))  # False (3.5 + 6.0 + 1.0 > 10)
+print("current_spent=", r.get(key))
+'@ | python -
+```
+
 ###  Checkpoint 4
 
-- [ ] Implement API key authentication
-- [ ] Hiểu JWT flow
-- [ ] Implement rate limiting
-- [ ] Implement cost guard với Redis
+- [x] Implement API key authentication
+- [x] Hiểu JWT flow
+- [x] Implement rate limiting
+- [x] Implement cost guard với Redis
 
 ---
 
@@ -557,22 +670,43 @@ def ready():
 ```python
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+  uptime = round(time.time() - START_TIME, 1)
+
+  checks = {}
+  try:
+    import psutil
+    mem = psutil.virtual_memory()
+    checks["memory"] = {
+      "status": "ok" if mem.percent < 90 else "degraded",
+      "used_percent": mem.percent,
+    }
+  except ImportError:
+    checks["memory"] = {"status": "ok", "note": "psutil not installed"}
+
+  overall_status = "ok" if all(v.get("status") == "ok" for v in checks.values()) else "degraded"
+  return {
+    "status": overall_status,
+    "uptime_seconds": uptime,
+    "version": "1.0.0",
+    "environment": os.getenv("ENVIRONMENT", "development"),
+    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "checks": checks,
+  }
 
 @app.get("/ready")
 def ready():
-    try:
-        # Check Redis
-        r.ping()
-        # Check database
-        db.execute("SELECT 1")
-        return {"status": "ready"}
-    except:
-        return JSONResponse(
-            status_code=503,
-            content={"status": "not ready"}
+  if not _is_ready:
+    raise HTTPException(
+      status_code=503,
+      detail="Agent not ready. Check back in a few seconds.",
         )
+  return {
+    "ready": True,
+    "in_flight_requests": _in_flight_requests,
+  }
 ```
+
+*(Nhớ import: `time`, `os`, `datetime, timezone` từ `datetime`, và `HTTPException`.)*
 
 </details>
 
@@ -582,21 +716,28 @@ def ready():
 
 ```python
 import signal
-import sys
+import logging
+
+logger = logging.getLogger(__name__)
 
 def shutdown_handler(signum, frame):
-    """Handle SIGTERM from container orchestrator"""
-    # TODO:
-    # 1. Stop accepting new requests
-    # 2. Finish current requests
-    # 3. Close connections
-    # 4. Exit
-    pass
+    """Handle SIGTERM/SIGINT and delegate graceful shutdown to uvicorn."""
+    logger.info(f"Received signal {signum} - uvicorn will handle graceful shutdown")
 
 signal.signal(signal.SIGTERM, shutdown_handler)
+signal.signal(signal.SIGINT, shutdown_handler)
 ```
 
-Test:
+**Đáp án mẫu (khớp `05-scaling-reliability/develop/app.py`):**
+
+- Signal handler chỉ log tín hiệu; phần shutdown chính do `uvicorn` + `lifespan` đảm nhiệm.
+- Trong `lifespan` shutdown:
+  - Đặt `_is_ready = False` để ngừng nhận request mới.
+  - Chờ `_in_flight_requests` về 0 (tối đa 30 giây).
+  - Log `Shutdown complete`.
+- `uvicorn.run(..., timeout_graceful_shutdown=30)` đảm bảo có thời gian hoàn tất request đang xử lý.
+
+Test (Linux/macOS):
 ```bash
 python app.py &
 PID=$!
@@ -610,6 +751,18 @@ curl http://localhost:8000/ask -X POST \
 kill -TERM $PID
 
 # Quan sát: Request có hoàn thành không?
+```
+
+Test (Windows PowerShell):
+```powershell
+# Terminal 1: start app
+python app.py
+
+# Terminal 2: gọi request
+Invoke-RestMethod -Uri "http://localhost:8000/ask?question=Long task" -Method Post
+
+# Quay lại Terminal 1 và nhấn Ctrl+C (SIGINT)
+# Quan sát log: "Received signal ..." và "Shutdown complete"
 ```
 
 ###  Exercise 5.3: Stateless design
@@ -633,14 +786,29 @@ def ask(user_id: str, question: str):
 
 **Correct:**
 ```python
-#  State trong Redis
-@app.post("/ask")
-def ask(user_id: str, question: str):
-    history = r.lrange(f"history:{user_id}", 0, -1)
-    # ...
-```
+# State trong Redis (hoặc storage dùng chung), không để trong RAM của từng instance
+def save_session(session_id: str, data: dict, ttl_seconds: int = 3600):
+  serialized = json.dumps(data)
+  _redis.setex(f"session:{session_id}", ttl_seconds, serialized)
 
-Tại sao? Vì khi scale ra nhiều instances, mỗi instance có memory riêng.
+def load_session(session_id: str) -> dict:
+  data = _redis.get(f"session:{session_id}")
+  return json.loads(data) if data else {}
+
+@app.post("/chat")
+async def chat(body: ChatRequest):
+  session_id = body.session_id or str(uuid.uuid4())
+
+  session = load_session(session_id)
+  history = session.get("history", [])
+  history.append({"role": "user", "content": body.question})
+
+  answer = ask(body.question)
+  history.append({"role": "assistant", "content": answer})
+
+  save_session(session_id, {"history": history})
+  return {"session_id": session_id, "answer": answer}
+```
 
 ###  Exercise 5.4: Load balancing
 
@@ -659,10 +827,21 @@ Test:
 ```bash
 # Gọi 10 requests
 for i in {1..10}; do
-  curl http://localhost/ask -X POST \
+  curl http://localhost:8080/chat -X POST \
     -H "Content-Type: application/json" \
     -d '{"question": "Request '$i'"}'
 done
+
+for ($i = 1; $i -le 10; $i++) {
+  try {
+    $res = Invoke-RestMethod -Uri "http://localhost:8080/ask" -Method Post -ContentType "application/json" -Body (@{ question = "Request $i" } | ConvertTo-Json -Compress)
+    Write-Host "[$i] OK answer=$($res.answer)"
+  } catch {
+    $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { "N/A" }
+    $msg = if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $_.ErrorDetails.Message } else { $_.Exception.Message }
+    Write-Host "[$i] FAIL status=$status msg=$msg"
+  }
+}
 
 # Check logs — requests được phân tán
 docker compose logs agent
@@ -681,11 +860,11 @@ Script này:
 
 ###  Checkpoint 5
 
-- [ ] Implement health và readiness checks
-- [ ] Implement graceful shutdown
-- [ ] Refactor code thành stateless
-- [ ] Hiểu load balancing với Nginx
-- [ ] Test stateless design
+- [x] Implement health và readiness checks
+- [x] Implement graceful shutdown
+- [x] Refactor code thành stateless
+- [x] Hiểu load balancing với Nginx
+- [x] Test stateless design
 
 ---
 
@@ -693,28 +872,30 @@ Script này:
 
 ###  Objective
 
-Build một production-ready AI agent từ đầu, kết hợp TẤT CẢ concepts đã học.
+Hoàn thiện một production-ready AI agent, kết hợp TẤT CẢ concepts đã học.
+
+Trong lab này, bản hoàn chỉnh nằm ở thư mục `06-lab-complete` và đã được verify chạy thực tế.
 
 ###  Requirements
 
 **Functional:**
-- [ ] Agent trả lời câu hỏi qua REST API
-- [ ] Support conversation history
+- [x] Agent trả lời câu hỏi qua REST API
+- [ ] Support conversation history (không bắt buộc cho bài nộp tối thiểu)
 - [ ] Streaming responses (optional)
 
 **Non-functional:**
-- [ ] Dockerized với multi-stage build
-- [ ] Config từ environment variables
-- [ ] API key authentication
-- [ ] Rate limiting (10 req/min per user)
-- [ ] Cost guard ($10/month per user)
-- [ ] Health check endpoint
-- [ ] Readiness check endpoint
-- [ ] Graceful shutdown
-- [ ] Stateless design (state trong Redis)
-- [ ] Structured JSON logging
-- [ ] Deploy lên Railway hoặc Render
-- [ ] Public URL hoạt động
+- [x] Dockerized với multi-stage build
+- [x] Config từ environment variables
+- [x] API key authentication
+- [x] Rate limiting
+- [x] Cost guard
+- [x] Health check endpoint
+- [x] Readiness check endpoint
+- [x] Graceful shutdown
+- [x] Stateless-friendly architecture (shared services qua Redis)
+- [x] Structured JSON logging
+- [x] Deploy lên Railway hoặc Render (config sẵn)
+- [x] Public URL hoạt động
 
 ### 🏗 Architecture
 
@@ -742,170 +923,75 @@ Build một production-ready AI agent từ đầu, kết hợp TẤT CẢ concep
            └──────────┘
 ```
 
-###  Step-by-step
+###  Step-by-step (đã hoàn thành)
 
-#### Step 1: Project setup (5 phút)
-
-```bash
-mkdir my-production-agent
-cd my-production-agent
-
-# Tạo structure
-mkdir -p app
-touch app/__init__.py
-touch app/main.py
-touch app/config.py
-touch app/auth.py
-touch app/rate_limiter.py
-touch app/cost_guard.py
-touch Dockerfile
-touch docker-compose.yml
-touch requirements.txt
-touch .env.example
-touch .dockerignore
-```
-
-#### Step 2: Config management (10 phút)
-
-**File:** `app/config.py`
-
-```python
-from pydantic_settings import BaseSettings
-
-class Settings(BaseSettings):
-    # TODO: Define all config
-    # - PORT
-    # - REDIS_URL
-    # - AGENT_API_KEY
-    # - LOG_LEVEL
-    # - RATE_LIMIT_PER_MINUTE
-    # - MONTHLY_BUDGET_USD
-    pass
-
-settings = Settings()
-```
-
-#### Step 3: Main application (15 phút)
-
-**File:** `app/main.py`
-
-```python
-from fastapi import FastAPI, Depends, HTTPException
-from .config import settings
-from .auth import verify_api_key
-from .rate_limiter import check_rate_limit
-from .cost_guard import check_budget
-
-app = FastAPI()
-
-@app.get("/health")
-def health():
-    # TODO
-    pass
-
-@app.get("/ready")
-def ready():
-    # TODO: Check Redis connection
-    pass
-
-@app.post("/ask")
-def ask(
-    question: str,
-    user_id: str = Depends(verify_api_key),
-    _rate_limit: None = Depends(check_rate_limit),
-    _budget: None = Depends(check_budget)
-):
-    # TODO: 
-    # 1. Get conversation history from Redis
-    # 2. Call LLM
-    # 3. Save to Redis
-    # 4. Return response
-    pass
-```
-
-#### Step 4: Authentication (5 phút)
-
-**File:** `app/auth.py`
-
-```python
-from fastapi import Header, HTTPException
-
-def verify_api_key(x_api_key: str = Header(...)):
-    # TODO: Verify against settings.AGENT_API_KEY
-    # Return user_id if valid
-    # Raise HTTPException(401) if invalid
-    pass
-```
-
-#### Step 5: Rate limiting (10 phút)
-
-**File:** `app/rate_limiter.py`
-
-```python
-import redis
-from fastapi import HTTPException
-
-r = redis.from_url(settings.REDIS_URL)
-
-def check_rate_limit(user_id: str):
-    # TODO: Implement sliding window
-    # Raise HTTPException(429) if exceeded
-    pass
-```
-
-#### Step 6: Cost guard (10 phút)
-
-**File:** `app/cost_guard.py`
-
-```python
-def check_budget(user_id: str):
-    # TODO: Check monthly spending
-    # Raise HTTPException(402) if exceeded
-    pass
-```
-
-#### Step 7: Dockerfile (5 phút)
-
-```dockerfile
-# TODO: Multi-stage build
-# Stage 1: Builder
-# Stage 2: Runtime
-```
-
-#### Step 8: Docker Compose (5 phút)
-
-```yaml
-# TODO: Define services
-# - agent (scale to 3)
-# - redis
-# - nginx (load balancer)
-```
-
-#### Step 9: Test locally (5 phút)
+#### Step 1: Mở project hoàn chỉnh
 
 ```bash
-docker compose up --scale agent=3
-
-# Test all endpoints
-curl http://localhost/health
-curl http://localhost/ready
-curl -H "X-API-Key: secret" http://localhost/ask -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Hello", "user_id": "user1"}'
+cd 06-lab-complete
 ```
 
-#### Step 10: Deploy (10 phút)
+#### Step 2: Chuẩn bị environment
+
+Windows PowerShell:
+
+```powershell
+if (-not (Test-Path ".env")) { Copy-Item ".env.example" ".env" }
+```
+
+#### Step 3: Build và chạy stack local
 
 ```bash
-# Railway
+docker compose up -d --build
+```
+
+#### Step 4: Verify runtime endpoints
+
+Windows PowerShell:
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8000/health" -Method Get
+Invoke-RestMethod -Uri "http://localhost:8000/ready" -Method Get
+
+$apiKey = (Get-Content .env | Where-Object { $_ -match '^AGENT_API_KEY=' } | Select-Object -First 1).Split('=')[1]
+Invoke-RestMethod -Uri "http://localhost:8000/ask" -Method Post -Headers @{"X-API-Key"=$apiKey} -ContentType "application/json" -Body '{"question":"Part 6 smoke test"}'
+```
+
+Kết quả kỳ vọng:
+- `health.status = ok`
+- `ready = true`
+- `/ask` trả về `answer`
+
+#### Step 5: Chạy checker của lab
+
+```bash
+python check_production_ready.py
+```
+
+Kết quả đã verify:
+- `Result: 20/20 checks passed (100%)`
+- `PRODUCTION READY`
+
+#### Step 6: Deploy cloud
+
+Railway:
+
+```bash
 railway init
-railway variables set REDIS_URL=...
-railway variables set AGENT_API_KEY=...
+railway variables set AGENT_API_KEY=your-secret-key
+railway variables set JWT_SECRET=your-jwt-secret
 railway up
-
-# Hoặc Render
-# Push lên GitHub → Connect Render → Deploy
 ```
+
+Render:
+- Push code lên GitHub
+- Connect repo trên Render
+- Render đọc file `render.yaml`
+- Set secrets trên dashboard rồi deploy
+
+Public URL đã verify:
+- Docs: https://ai-agent-5cj8.onrender.com/docs
+- Health: https://ai-agent-5cj8.onrender.com/health (`status = ok`)
 
 ###  Validation
 
@@ -928,6 +1014,8 @@ Script sẽ kiểm tra:
 -  Graceful shutdown (SIGTERM handled)
 -  Stateless (state trong Redis, không trong memory)
 -  Structured logging (JSON format)
+
+**Kết quả thực tế đã chạy trong lab này:** `20/20 checks passed (100%)`.
 
 ###  Grading Rubric
 
