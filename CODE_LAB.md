@@ -289,7 +289,7 @@ curl http://localhost/ask -X POST \
 ###  Exercise 3.1: Deploy Render (15 phút)
 
 ```bash
-cd ../../03-cloud-deployment/render
+cd .
 ```
 
 **Steps:**
@@ -298,7 +298,7 @@ cd ../../03-cloud-deployment/render
 2. Vào [render.com](https://render.com) → Sign up
 3. New → Blueprint
 4. Connect GitHub repo
-5. Render tự động đọc `render.yaml`
+5. Render tự động đọc `render.yaml` ở repo root
 6. Set environment variables trong dashboard
 7. Deploy! Render sẽ tạo web service và Redis từ `render.yaml`
 

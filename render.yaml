@@ -1,0 +1,38 @@
+# ============================================================
+# render.yaml — Infrastructure as Code cho Render
+# Repo root blueprint; web service code lives under 03-cloud-deployment/railway
+# ============================================================
+
+services:
+  - type: web
+    name: ai-agent
+    runtime: python
+    region: singapore
+    plan: free
+    rootDir: 03-cloud-deployment/railway
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AGENT_API_KEY
+        generateValue: true
+
+  - type: redis
+    name: agent-cache
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+
+# ============================================================
+# Cách deploy:
+#   1. Push code lên GitHub
+#   2. Render Dashboard → New → Blueprint
+#   3. Connect repo → Render đọc render.yaml ở repo root
+#   4. Review và Deploy
+# ============================================================
